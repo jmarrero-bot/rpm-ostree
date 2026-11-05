@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        RELEASE: ['43', '44']
+        RELEASE: ['44']
     container:
       image: quay.io/coreos-assembler/fcos-buildroot:testing-devel
       options: "--user root --privileged -v /var/tmp:/var/tmp"
@@ -63,3 +63,19 @@ jobs:
         run: env TMPDIR=/var/tmp JOBS=3 RELEASE=${RELEASE} ./tests/compose-image.sh
         env:
           RELEASE: ${{ matrix.RELEASE }}
+      - name: Diagnostics
+        if: always()
+        run: |
+          set -x
+          uname -a || true
+          cat /proc/self/attr/current || true
+          cat /proc/self/attr/apparmor/current || true
+          cat /sys/module/apparmor/parameters/enabled || true
+          ls /sys/kernel/security/apparmor/policy/profiles/ 2>&1 | head -50 || true
+          grep -l bwrap /sys/kernel/security/apparmor/policy/profiles/*/name 2>/dev/null | xargs -r cat || true
+          dmesg 2>&1 | grep -iE 'apparmor|denied|bwrap|sysusers|audit' | tail -40 || true
+          capsh --print || true
+          bwrap --version || true
+          bwrap --bind / / --cap-drop ALL --cap-add cap_dac_override -- cat /proc/self/status | grep -i cap || true
+          bwrap --bind / / --cap-drop ALL --cap-add cap_dac_override -- cat /proc/self/attr/current || true
+          ls -l /etc/gshadow; bwrap --bind / / --cap-drop ALL --cap-add cap_dac_override -- head -c 20 /etc/gshadow && echo READ_OK || true
