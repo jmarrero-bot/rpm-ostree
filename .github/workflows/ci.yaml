@@ -196,7 +196,10 @@ jobs:
   compose-image:
     name: "compose-image tests"
     needs: build
-    runs-on: ubuntu-latest
+    # On ubuntu-latest's newer ubuntu-26.04 image, systemd-sysusers fails
+    # in the Silverblue compose with "Failed to open /etc/gshadow:
+    # Permission denied", independent of the rpm-ostree build.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
