@@ -17,13 +17,13 @@ env:
 
 jobs:
   scratch-actionlint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
       - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
   build:
     name: "Build"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Build on the Fedora release of the images this binary is tested in
     # (fedora-coreos:stable, fedora-bootc:44), not in fcos-buildroot: that
     # tracks testing-devel, which can be a Fedora release ahead (Fedora 45
@@ -53,7 +53,7 @@ jobs:
           path: install.tar
   build-tests:
     name: "Build Integration Test Data"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container:
       image: quay.io/coreos-assembler/fcos-buildroot:testing-devel
       # Run privileged to hack around createrepo_c hitting the classic seccomp
@@ -76,7 +76,7 @@ jobs:
           path: tests.tar
   cxx-verify:
     name: "Verify CXX generation"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container: quay.io/coreos-assembler/fcos-buildroot:testing-devel
     steps:
       - name: Checkout repository
@@ -93,7 +93,7 @@ jobs:
   # and not clippy.
   # linting:
   #   name: "Lints, pinned toolchain"
-  #   runs-on: ubuntu-latest
+  #   runs-on: ubuntu-26.04
   #   container: quay.io/coreos-assembler/fcos-buildroot:testing-devel
   #   steps:
   #     - name: Checkout repository
@@ -113,7 +113,7 @@ jobs:
   #       run: cargo clippy -- -D warnings
   #build-clang:
   #  name: "Build (clang)"
-  #  runs-on: ubuntu-latest
+  #  runs-on: ubuntu-26.04
   #  container: quay.io/coreos-assembler/fcos-buildroot:testing-devel
   #  steps:
   #    - name: Checkout repository
@@ -126,7 +126,7 @@ jobs:
   integration:
     name: "Container Integration"
     needs: [build, build-tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container: quay.io/fedora/fedora-coreos:stable
     steps:
       - name: Checkout repository
@@ -149,7 +149,7 @@ jobs:
   container-build:
     name: "Container build"
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -167,7 +167,7 @@ jobs:
       - name: Integration tests
         run: ./ci/container-build-integration.sh
   cargo-deny:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
     - uses: actions/checkout@v3
     - uses: EmbarkStudios/cargo-deny-action@v2.0.11
@@ -187,7 +187,7 @@ jobs:
   compose:
     name: "Compose tests"
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -206,7 +206,7 @@ jobs:
   compose-image:
     name: "compose-image tests"
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
@@ -231,7 +231,7 @@ jobs:
   compose-rootfs:
     name: "compose-rootfs tests"
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -253,7 +253,7 @@ jobs:
   container-encapsulate:
     name: "Encapsulate tests"
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container:
       image: quay.io/coreos-assembler/fcos-buildroot:testing-devel
       options: "--user root --privileged -v /var/tmp:/var/tmp"
@@ -276,7 +276,7 @@ jobs:
   test-build-chunked-oci:
     name: "build-chunked-oci tests"
     needs: build-c10s
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -305,7 +305,7 @@ jobs:
           sudo ./test.sh
   build-c10s:
     name: "Build (c10s)"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     container: quay.io/centos/centos:stream10
     steps:
       - name: Install git
@@ -333,7 +333,7 @@ jobs:
   # Doc: https://github.com/redhat-plumbers-in-action/differential-shellcheck#usage
   differential-shellcheck:
     name: Differential ShellCheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
 
     permissions:
       security-events: write
