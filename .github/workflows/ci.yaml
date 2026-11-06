@@ -1,358 +1,65 @@
 ---
+# Scratch experiment (jmarrero-forge/tracker#78): does bootc-dev/actions'
+# bootc-host-setup AppArmor workaround let compose-image pass on ubuntu-26.04
+# when the buildroot container is started from a host job?
 name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
 
 permissions:
   contents: read
-
-env:
-  CARGO_TERM_COLOR: always
-  # Minimum supported Rust version (MSRV)
-  ACTION_MSRV_TOOLCHAIN: 1.60.0
-  # Pinned toolchain for linting
-  ACTION_LINTS_TOOLCHAIN: 1.60.0
 
 jobs:
   build:
     name: "Build"
     runs-on: ubuntu-latest
-    # Build on the Fedora release of the images this binary is tested in
-    # (fedora-coreos:stable, fedora-bootc:44), not in fcos-buildroot: that
-    # tracks testing-devel, which can be a Fedora release ahead (Fedora 45
-    # links against OpenSSL 4, which Fedora 44 doesn't have). Bump this when
-    # fedora-coreos:stable moves to a new release.
     container: quay.io/fedora/fedora:44
     steps:
-      # Before checkout, so that it is a git checkout; codestyle and the
-      # unit tests need the rest (fcos-buildroot has them preinstalled).
-      - name: Install git, codestyle and unit test tools
+      - name: Install git
         run: dnf -y install git-core clang-tools-extra cargo rustfmt cpio
       - name: Checkout repository
         uses: actions/checkout@v3
-      # https://github.com/actions/checkout/issues/760
       - name: Mark git checkout as safe
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Codestyle
-        run: ./ci/codestyle.sh
       - name: Build
         run: ./ci/build.sh && make install DESTDIR=$(pwd)/install && tar -C install -czf install.tar .
-      - name: Unit tests
-        run: cargo test
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: install.tar
           path: install.tar
-  build-tests:
-    name: "Build Integration Test Data"
-    runs-on: ubuntu-latest
-    container:
-      image: quay.io/coreos-assembler/fcos-buildroot:testing-devel
-      # Run privileged to hack around createrepo_c hitting the classic seccomp
-      # broken behaviour of returning EPERM instead of ENOSYS. We should be able
-      # to drop this once `ubuntu-latest` is bumped to include the fix for
-      # https://github.com/opencontainers/runc/issues/2151.
-      options: "--user root --privileged"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      # https://github.com/actions/checkout/issues/760
-      - name: Mark git checkout as safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Build
-        run: make -C tests/kolainst && make -C tests/kolainst install DESTDIR=$(pwd)/install && tar -C install -czf tests.tar .
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: tests.tar
-          path: tests.tar
-  cxx-verify:
-    name: "Verify CXX generation"
-    runs-on: ubuntu-latest
-    container: quay.io/coreos-assembler/fcos-buildroot:testing-devel
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      # https://github.com/actions/checkout/issues/760
-      - name: Mark git checkout as safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Codestyle
-        run: ./ci/verify-cxx.sh
-  # TODO: Enable this once we've switched closer to having `cargo build`
-  # be the primary buildsystem entrypoint.  Right now the problem is
-  # in order to build the libdnf-sys dependency it relies on us having
-  # run through autoconf, but that flow wants to a "real" Rust build
-  # and not clippy.
-  # linting:
-  #   name: "Lints, pinned toolchain"
-  #   runs-on: ubuntu-latest
-  #   container: quay.io/coreos-assembler/fcos-buildroot:testing-devel
-  #   steps:
-  #     - name: Checkout repository
-  #       uses: actions/checkout@v3
-  #     - name: Install dependencies
-  #       run: ./ci/installdeps.sh
-  #     - name: Remove system Rust toolchain
-  #       run: dnf remove -y rust cargo
-  #     - name: Install toolchain
-  #       uses: dtolnay/rust-toolchain@v1
-  #       with:
-  #         toolchain: ${{ env['ACTION_LINTS_TOOLCHAIN']  }}
-  #         components: rustfmt, clippy
-  #     - name: cargo fmt (check)
-  #       run: cargo fmt -- --check -l
-  #     - name: cargo clippy (warnings)
-  #       run: cargo clippy -- -D warnings
-  #build-clang:
-  #  name: "Build (clang)"
-  #  runs-on: ubuntu-latest
-  #  container: quay.io/coreos-assembler/fcos-buildroot:testing-devel
-  #  steps:
-  #    - name: Checkout repository
-  #      uses: actions/checkout@v3
-  #    # https://github.com/actions/checkout/issues/760
-  #    - name: Mark git checkout as safe
-  #      run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-  #    - name: Build
-  #      run: ./ci/clang-build-check.sh
-  integration:
-    name: "Container Integration"
-    needs: [build, build-tests]
-    runs-on: ubuntu-latest
-    container: quay.io/fedora/fedora-coreos:stable
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Download build
-        uses: actions/download-artifact@v4.1.7
-        with:
-          name: install.tar
-      - name: Install
-        run: tar -C / -xzvf install.tar && rm -f install.tar
-      - name: Download tests
-        uses: actions/download-artifact@v4.1.7
-        with:
-          name: tests.tar
-      - name: Install Tests
-        run: tar -C / -xzvf tests.tar && rm -f tests.tar
-      - name: Integration tests
-        run: ./ci/test-container.sh
-  # Try to keep this in sync with https://github.com/ostreedev/ostree-rs-ext/blob/1fc115a760eeada22599e0f57026f58b22efded4/.github/workflows/rust.yml#L163
-  container-build:
-    name: "Container build"
-    needs: build
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Bootc Ubuntu Setup
-        uses: ./.github/actions/bootc-ubuntu-setup
-      - name: Checkout coreos-layering-examples
-        uses: actions/checkout@v3
-        with:
-          repository: coreos/coreos-layering-examples
-          path: coreos-layering-examples
-      - name: Download
-        uses: actions/download-artifact@v4.1.7
-        with:
-          name: install.tar
-      - name: Integration tests
-        run: ./ci/container-build-integration.sh
-  cargo-deny:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: EmbarkStudios/cargo-deny-action@v2.0.11
-      with:
-        log-level: warn
-        command: check bans sources licenses
-  compose:
-    name: "Compose tests"
-    needs: build
-    # See compose-image below.
-    runs-on: ubuntu-24.04
-    container:
-      image: quay.io/coreos-assembler/fcos-buildroot:testing-devel
-      options: "--user root --privileged -v /var/tmp:/var/tmp"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Install test dependencies
-        run: ./ci/install-test-deps.sh
-      - name: Download build
-        uses: actions/download-artifact@v4.1.7
-        with:
-          name: install.tar
-      - name: Install
-        # The binary is built on Fedora 44 (see the Build job), and
-        # fcos-buildroot can be newer; pull in its OpenSSL 3 compat libs.
-        # Drop this when the Build job's container matches fcos-buildroot.
-        run: tar -C / -xzvf install.tar && dnf -y install 'libssl.so.3()(64bit)'
-      - name: Integration tests
-        run: env TMPDIR=/var/tmp JOBS=3 ./tests/compose.sh
   compose-image:
-    name: "compose-image tests"
+    name: "compose-image f${{ matrix.RELEASE }} (${{ matrix.setup }})"
     needs: build
-    # The ubuntu-26.04 image (which ubuntu-latest is moving to) confines
-    # /usr/bin/bwrap, even inside a privileged container, with AppArmor's
-    # bwrap-userns-restrict profile; its unpriv_bwrap child profile denies
-    # all capabilities, so scriptlets run as root without CAP_DAC_OVERRIDE
-    # and e.g. systemd-sysusers can't read /etc/gshadow. A container job
-    # can't change the host's AppArmor policy. Profile:
-    # https://gitlab.com/apparmor/apparmor/-/blob/aecf78014d02a7ed226387fc17a5b3e23b1df1e2/profiles/apparmor/profiles/extras/bwrap-userns-restrict#L59-79
-    # There is no runner-images or Ubuntu bug about root bwrap in privileged
-    # containers yet. Drop this pin once ubuntu-26.04 runners let these
-    # scriptlets keep their capabilities (check with sysusers in the
-    # Silverblue compose), or once these composes no longer run bwrap
-    # directly on the runner's kernel (e.g. inside a VM).
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
-        RELEASE: ['43', '44']
-    container:
-      image: quay.io/coreos-assembler/fcos-buildroot:testing-devel
-      options: "--user root --privileged -v /var/tmp:/var/tmp"
+        include:
+          - { RELEASE: '44', setup: none }
+          - { RELEASE: '43', setup: bootc-host-setup }
+          - { RELEASE: '44', setup: bootc-host-setup }
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Install test dependencies
-        run: ./ci/install-test-deps.sh
+        uses: actions/checkout@v4
+      - name: Bootc host setup
+        if: matrix.setup == 'bootc-host-setup'
+        uses: bootc-dev/actions/bootc-host-setup@de95828443214c605662555316955bd1425b448d
       - name: Download build
         uses: actions/download-artifact@v4.1.7
         with:
           name: install.tar
-      - name: Install
-        # The binary is built on Fedora 44 (see the Build job), and
-        # fcos-buildroot can be newer; pull in its OpenSSL 3 compat libs.
-        # Drop this when the Build job's container matches fcos-buildroot.
-        run: tar -C / -xzvf install.tar && dnf -y install 'libssl.so.3()(64bit)'
       - name: Integration tests
-        run: env TMPDIR=/var/tmp JOBS=3 RELEASE=${RELEASE} ./tests/compose-image.sh
         env:
           RELEASE: ${{ matrix.RELEASE }}
-  compose-rootfs:
-    name: "compose-rootfs tests"
-    needs: build
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Bootc Ubuntu Setup
-        uses: ./.github/actions/bootc-ubuntu-setup
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Download build
-        uses: actions/download-artifact@v4.1.7
-        with:
-          name: install.tar
-      - name: Test compose-rootfs
         run: |
-          cd tests/compose-rootfs
-          tar -xzvf ../../install.tar
-          sudo podman build -v $(pwd)/usr/bin/rpm-ostree:/run/build/rpm-ostree:ro --security-opt=label=disable --cap-add=all --device /dev/fuse -t localhost/test -f Containerfile .
-  container-encapsulate:
-    name: "Encapsulate tests"
-    needs: build
-    runs-on: ubuntu-latest
-    container:
-      image: quay.io/coreos-assembler/fcos-buildroot:testing-devel
-      options: "--user root --privileged -v /var/tmp:/var/tmp"
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Download build
-        uses: actions/download-artifact@v4.1.7
-        with:
-          name: install.tar
-      - name: Install test deps
-        run: dnf -y install skopeo
-      - name: Install
-        # The binary is built on Fedora 44 (see the Build job), and
-        # fcos-buildroot can be newer; pull in its OpenSSL 3 compat libs.
-        # Drop this when the Build job's container matches fcos-buildroot.
-        run: tar -C / -xzvf install.tar && dnf -y install 'libssl.so.3()(64bit)'
-      - name: Integration tests
-        run: env TMPDIR=/var/tmp ./tests/encapsulate.sh
-  test-build-chunked-oci:
-    name: "build-chunked-oci tests"
-    needs: build-c10s
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Bootc Ubuntu Setup
-        uses: ./.github/actions/bootc-ubuntu-setup
-      - name: Unprivileged tests
-        run: |
-          set -xeuo pipefail
-          sudo apt-get update
-          sudo apt-get install -y fuse-overlayfs
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          podman build -v $(pwd):/src -t localhost/buildah -f tests/build-chunked-oci/Containerfile.buildah .
-          podman run --rm --device=/dev/fuse localhost/buildah /test-buildah.sh
-      - name: Download build
-        uses: actions/download-artifact@v4.1.7
-        with:
-          name: install-c10s.tar
-      - name: Integration tests
-        run: |
-          set -xeuo pipefail
-          cd tests/build-chunked-oci
-          tar -xzvf ../../install.tar
-          sudo podman build -v $(pwd)/usr/bin:/ci -t localhost/builder -f Containerfile.builder
-          sudo ./test.sh
-  build-c10s:
-    name: "Build (c10s)"
-    runs-on: ubuntu-latest
-    container: quay.io/centos/centos:stream10
-    steps:
-      - name: Install git
-        run: yum -y install git
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          submodules: true
-      # https://github.com/actions/checkout/issues/760
-      - name: Mark git checkout as safe
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Run ridiculous RHEL -devel package workaround
-        run: ./ci/ridiculous-rhel-devel-workaround.sh
-      - name: Install dependencies
-        run: ./ci/installdeps.sh
-      - name: Build
-        run: ./ci/build.sh && make install DESTDIR=$(pwd)/install && tar -C install -czf install.tar .
-      - name: Unit tests
-        run: cargo test
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: install-c10s.tar
-          path: install.tar
-  # Doc: https://github.com/redhat-plumbers-in-action/differential-shellcheck#usage
-  differential-shellcheck:
-    name: Differential ShellCheck
-    runs-on: ubuntu-latest
-
-    permissions:
-      security-events: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Differential ShellCheck
-        uses: redhat-plumbers-in-action/differential-shellcheck@v4
-        with:
-          severity: warning
-          token: ${{ secrets.GITHUB_TOKEN }}
+          cat /etc/os-release | head -3
+          sudo grep bwrap /sys/kernel/security/apparmor/profiles || true
+          docker run --rm --privileged --user root -e RELEASE \
+            -v /var/tmp:/var/tmp -v "$PWD:$PWD" -w "$PWD" \
+            quay.io/coreos-assembler/fcos-buildroot:testing-devel bash -euxc '
+              ./ci/install-test-deps.sh
+              tar -C / -xzf install.tar
+              dnf -y install "libssl.so.3()(64bit)"
+              env TMPDIR=/var/tmp JOBS=3 ./tests/compose-image.sh'
